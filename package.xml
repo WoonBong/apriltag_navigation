@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>apriltag_navigation</name>
+  <version>1.0.0</version>
+  <description>
+    Research-quality modular AprilTag-based navigation system.
+    Features data-driven map configuration, Pure Pursuit path following,
+    and field diagnostic tools for hardware testing.
+  </description>
+
+  <maintainer email="your_email@example.com">Your Name</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- ROS dependencies -->
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf</depend>
+
+  <!-- Python dependencies (installed via pip) -->
+  <!-- dt-apriltags, numpy, opencv-python, pandas, pyyaml -->
+
+  <export>
+  </export>
+</package>

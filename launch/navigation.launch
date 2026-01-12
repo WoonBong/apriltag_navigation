@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+    AprilTag Navigation Launch File
+
+    Usage:
+      roslaunch apriltag_navigation navigation.launch
+  -->
+
+  <!-- Arguments -->
+  <arg name="config_path" default="$(find apriltag_navigation)/config/map.yaml"
+       doc="Path to map configuration YAML file"/>
+
+  <!-- Main navigation node -->
+  <node name="apriltag_navigation" pkg="apriltag_navigation" type="main_node.py" output="screen">
+    <param name="config_path" value="$(arg config_path)"/>
+  </node>
+
+  <!-- Optional: Static transform for camera (if needed) -->
+  <!-- Uncomment and adjust if your camera frame needs to be published -->
+  <!--
+  <node pkg="tf" type="static_transform_publisher" name="camera_base_link"
+        args="0.45 0 0 0 0 0 base_link camera_link 100"/>
+  -->
+
+</launch>
