@@ -9,6 +9,8 @@ All complexity hidden in robot_interface.
 import rospy
 import sys
 import os
+import argparse
+import glob
 
 # Add src to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -49,6 +51,18 @@ class NavigationMission:
         self.waypoints = self.map.task_manager.get_task_waypoints(task_name)
         self.waypoint_index = 0
         rospy.loginfo(f"[MISSION] Loaded {task_name}: {len(self.waypoints)} waypoints")
+
+    def load_direct_navigation(self, target_tag):
+        """
+        Load a direct navigation task to a specific tag (Mode 3).
+
+        Args:
+            target_tag: Target tag ID
+        """
+        current_pos = self.robot.get_current_position()
+        self.waypoints = self.map.nav_graph.find_path(current_pos, target_tag)
+        self.waypoint_index = 0
+        rospy.loginfo(f"[MISSION] Direct navigation to tag {target_tag}: {len(self.waypoints)} waypoints")
 
     def load_scan_task(self, excel_path):
         """
@@ -163,30 +177,230 @@ class NavigationMission:
         rospy.loginfo(f"[MISSION] Waypoint {tag_id} complete")
 
 
+def run_diagnostics(args):
+    """
+    Run diagnostic tests based on command-line arguments.
+
+    Args:
+        args: Parsed command-line arguments
+    """
+    # Import diagnostic modules
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+    from apriltag_navigation.map.map_manager import MapManager
+    from apriltag_navigation.perception.vision_module import VisionModule
+    from apriltag_navigation.hardware.robot_controller import RobotController, RotationController
+
+    print("=" * 60)
+    print("AprilTag Navigation - Diagnostic Mode")
+    print("=" * 60)
+
+    # Initialize subsystems
+    print("\nInitializing subsystems...")
+    map_manager = MapManager()
+    vision = VisionModule()
+    robot = RobotController(map_manager)
+    rotation_ctrl = RotationController(robot)
+
+    print("[OK] All subsystems initialized")
+
+    # Wait for ready
+    print("\nWaiting for camera and odometry...")
+    rate = rospy.Rate(10)
+    timeout = rospy.Time.now() + rospy.Duration(10.0)
+
+    while not rospy.is_shutdown() and rospy.Time.now() < timeout:
+        if vision.is_ready() and robot.is_ready():
+            print("[OK] All systems ready\n")
+            break
+        rate.sleep()
+    else:
+        print("[ERROR] Timeout waiting for systems")
+        return
+
+    # Run selected tests
+    if args.test_vision:
+        test_vision(vision, args.duration)
+
+    if args.test_motor:
+        test_motor(robot, args.distance, args.direction)
+
+    if args.test_pivot:
+        test_pivot(robot, rotation_ctrl, args.direction)
+
+    print("\nDiagnostics complete!")
+
+
+def test_vision(vision, duration):
+    """Test vision system"""
+    print("=" * 60)
+    print(f"VISION TEST: Detecting AprilTags for {duration}s")
+    print("=" * 60)
+
+    rate = rospy.Rate(10)
+    start_time = rospy.Time.now()
+    detected_tags_history = set()
+
+    try:
+        while not rospy.is_shutdown():
+            elapsed = (rospy.Time.now() - start_time).to_sec()
+            if elapsed >= duration:
+                break
+
+            detected_tags = vision.get_detected_tags()
+            detected_tags_history.update(detected_tags.keys())
+
+            print(f"\r[{elapsed:.1f}s] ", end='')
+            if detected_tags:
+                tag_strs = [f"Tag {tid}: {d['z']:.2f}m" for tid, d in detected_tags.items()]
+                print(" | ".join(tag_strs), end='')
+            else:
+                print("No tags detected", end='')
+            sys.stdout.flush()
+            rate.sleep()
+
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED]")
+
+    print("\n" + "=" * 60)
+    print(f"Detected {len(detected_tags_history)} unique tags: {sorted(detected_tags_history)}")
+    print("=" * 60)
+
+
+def test_motor(robot, distance, direction):
+    """Test motor movement"""
+    import time
+    print("=" * 60)
+    print(f"MOTOR TEST: Move {direction} {distance}m")
+    print("=" * 60)
+
+    start_x, start_y = robot.get_position()
+    speed = 0.3 if direction == 'forward' else -0.3
+
+    rate = rospy.Rate(30)
+    try:
+        while not rospy.is_shutdown():
+            robot.move(speed, 0)
+            current_x, current_y = robot.get_position()
+            traveled = ((current_x - start_x)**2 + (current_y - start_y)**2)**0.5
+
+            if traveled >= distance:
+                break
+            rate.sleep()
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED]")
+    finally:
+        robot.stop()
+        time.sleep(0.5)
+        end_x, end_y = robot.get_position()
+        actual = ((end_x - start_x)**2 + (end_y - start_y)**2)**0.5
+        print(f"\nTarget: {distance:.2f}m, Actual: {actual:.2f}m, Error: {abs(actual-distance):.2f}m")
+
+
+def test_pivot(robot, rotation_ctrl, direction):
+    """Test pivot rotation"""
+    import time
+    print("=" * 60)
+    print(f"PIVOT TEST: Rotate 90° {direction.upper()}")
+    print("=" * 60)
+
+    start_heading = robot.get_heading()
+    rotation_ctrl.start_rotation(90, direction)
+
+    rate = rospy.Rate(30)
+    try:
+        while not rospy.is_shutdown():
+            if rotation_ctrl.update():
+                break
+            rate.sleep()
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED]")
+        rotation_ctrl.cancel()
+    finally:
+        time.sleep(0.5)
+        end_heading = robot.get_heading()
+        rotation = (end_heading - start_heading) * 180.0 / 3.14159
+        print(f"\nRotation: {rotation:.1f}°")
+
+
+def list_excel_files():
+    """
+    List available Excel files in data/excel directory.
+    Returns: List of Excel file paths
+    """
+    package_dir = os.path.join(os.path.dirname(__file__), '..')
+    excel_dir = os.path.join(package_dir, 'data', 'excel')
+
+    if not os.path.exists(excel_dir):
+        return []
+
+    # Find all Excel files
+    excel_files = []
+    for ext in ['*.xlsx', '*.xls']:
+        excel_files.extend(glob.glob(os.path.join(excel_dir, ext)))
+
+    return sorted(excel_files)
+
+
+def select_excel_file():
+    """
+    Interactive Excel file selection.
+    Returns: Selected Excel file path or None
+    """
+    excel_files = list_excel_files()
+
+    if not excel_files:
+        print("\n[ERROR] No Excel files found in data/excel/ directory!")
+        print("Please place your Excel files in: data/excel/\n")
+        return None
+
+    print("\nAvailable Excel files:")
+    print("-" * 50)
+    for i, filepath in enumerate(excel_files, 1):
+        filename = os.path.basename(filepath)
+        print(f"{i}: {filename}")
+    print("-" * 50)
+
+    while True:
+        try:
+            choice = input(f"\nSelect file (1-{len(excel_files)}): ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(excel_files):
+                return excel_files[idx]
+            print(f"Please enter a number between 1 and {len(excel_files)}")
+        except (ValueError, KeyboardInterrupt, EOFError):
+            return None
+
+
 def select_mode():
     """
     Interactive mode selection.
-    Returns: (mode, excel_path)
+    Returns: (mode, target_tag/excel_path)
     """
     print("=" * 50)
     print("AprilTag Navigation System")
     print("=" * 50)
     print("\n1: Task 1 (Zone B + C)")
     print("2: Task 2 (Zone D + E)")
+    print("3: Direct Navigation (Go to specific tag)")
     print("4: Scan Mode (from Excel)\n")
 
     while True:
         try:
-            choice = input("Select mode (1/2/4): ").strip()
+            choice = input("Select mode (1/2/3/4): ").strip()
             if choice == '1':
                 return 1, None
             elif choice == '2':
                 return 2, None
+            elif choice == '3':
+                target_tag = input("Enter target tag ID: ").strip()
+                if target_tag.isdigit():
+                    return 3, int(target_tag)
+                print("Please enter a valid tag ID (number)!")
             elif choice == '4':
-                excel_path = input("Excel file path: ").strip()
+                excel_path = select_excel_file()
                 if excel_path:
                     return 4, excel_path
-                print("Excel path required for mode 4!")
+                print("Excel file selection cancelled!")
         except (KeyboardInterrupt, EOFError):
             return None, None
 
@@ -196,13 +410,73 @@ def main():
     Main entry point.
     Ultra-clean, reads like pseudocode.
     """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='AprilTag Navigation System',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Interactive mode selection
+  rosrun apriltag_navigation main_node.py
+
+  # Direct mode selection
+  rosrun apriltag_navigation main_node.py --mode 1
+  rosrun apriltag_navigation main_node.py --mode 3 --tag 5
+
+  # Test/diagnostic modes
+  rosrun apriltag_navigation main_node.py --test-vision
+  rosrun apriltag_navigation main_node.py --test-motor --distance 2.0
+        """
+    )
+
+    parser.add_argument('--mode', type=int, choices=[1, 2, 3, 4],
+                        help='Navigation mode: 1=Task1, 2=Task2, 3=Direct, 4=Scan')
+    parser.add_argument('--tag', type=int, help='Target tag ID for mode 3')
+    parser.add_argument('--excel', type=str, help='Excel file path for mode 4')
+
+    # Test/diagnostic options
+    parser.add_argument('--test-vision', action='store_true', help='Test vision system')
+    parser.add_argument('--test-motor', action='store_true', help='Test motor movement')
+    parser.add_argument('--test-pivot', action='store_true', help='Test pivot rotation')
+    parser.add_argument('--distance', type=float, default=1.0, help='Distance for motor test (meters)')
+    parser.add_argument('--direction', type=str, default='forward',
+                        choices=['forward', 'backward', 'cw', 'ccw'],
+                        help='Direction for motor/pivot test')
+    parser.add_argument('--duration', type=float, default=10.0, help='Duration for vision test (seconds)')
+
+    args = parser.parse_args()
+
     # Initialize ROS
     rospy.init_node('apriltag_navigation', anonymous=True)
 
-    # Select mission mode
-    mode, excel_path = select_mode()
-    if mode is None:
+    # Check for test modes
+    if args.test_vision or args.test_motor or args.test_pivot:
+        run_diagnostics(args)
         return
+
+    # Determine mode and parameter
+    if args.mode is not None:
+        # Command-line mode
+        mode = args.mode
+        if mode == 3:
+            if args.tag is None:
+                rospy.logerr("--tag required for mode 3")
+                return
+            mode_param = args.tag
+        elif mode == 4:
+            if args.excel:
+                mode_param = args.excel
+            else:
+                mode_param = select_excel_file()
+                if mode_param is None:
+                    return
+        else:
+            mode_param = None
+    else:
+        # Interactive mode selection
+        mode, mode_param = select_mode()
+        if mode is None:
+            return
 
     # Initialize robot
     robot = RobotInterface()
@@ -219,8 +493,10 @@ def main():
         mission.load_task('task1')
     elif mode == 2:
         mission.load_task('task2')
+    elif mode == 3:
+        mission.load_direct_navigation(mode_param)
     elif mode == 4:
-        mission.load_scan_task(excel_path)
+        mission.load_scan_task(mode_param)
 
     # Execute mission
     rospy.loginfo("Starting mission...")

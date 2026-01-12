@@ -2,6 +2,11 @@
 REFACTORING_SUMMARY.md
 QUICKSTART.md
 
+# Data files - keep folder structure, exclude actual data files
+data/excel/*.xlsx
+data/excel/*.xls
+!data/excel/README.md
+
 # Python
 __pycache__/
 *.py[cod]
