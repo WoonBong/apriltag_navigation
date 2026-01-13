@@ -10,12 +10,13 @@ import rospy
 import sys
 import os
 import argparse
-import glob
 
 # Add src to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from apriltag_navigation.robot_interface import RobotInterface, NavigationState
+from apriltag_navigation.ui_helper import select_mode, select_excel_file
+from apriltag_navigation.test_helper import run_diagnostics
 
 
 class NavigationMission:
@@ -177,234 +178,6 @@ class NavigationMission:
         rospy.loginfo(f"[MISSION] Waypoint {tag_id} complete")
 
 
-def run_diagnostics(args):
-    """
-    Run diagnostic tests based on command-line arguments.
-
-    Args:
-        args: Parsed command-line arguments
-    """
-    # Import diagnostic modules
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
-    from apriltag_navigation.map.map_manager import MapManager
-    from apriltag_navigation.perception.vision_module import VisionModule
-    from apriltag_navigation.hardware.robot_controller import RobotController, RotationController
-
-    print("=" * 60)
-    print("AprilTag Navigation - Diagnostic Mode")
-    print("=" * 60)
-
-    # Initialize subsystems
-    print("\nInitializing subsystems...")
-    map_manager = MapManager()
-    vision = VisionModule()
-    robot = RobotController(map_manager)
-    rotation_ctrl = RotationController(robot)
-
-    print("[OK] All subsystems initialized")
-
-    # Wait for ready
-    print("\nWaiting for camera and odometry...")
-    rate = rospy.Rate(10)
-    timeout = rospy.Time.now() + rospy.Duration(10.0)
-
-    while not rospy.is_shutdown() and rospy.Time.now() < timeout:
-        if vision.is_ready() and robot.is_ready():
-            print("[OK] All systems ready\n")
-            break
-        rate.sleep()
-    else:
-        print("[ERROR] Timeout waiting for systems")
-        return
-
-    # Run selected tests
-    if args.test_vision:
-        test_vision(vision, args.duration)
-
-    if args.test_motor:
-        test_motor(robot, args.distance, args.direction)
-
-    if args.test_pivot:
-        test_pivot(robot, rotation_ctrl, args.direction)
-
-    print("\nDiagnostics complete!")
-
-
-def test_vision(vision, duration):
-    """Test vision system"""
-    print("=" * 60)
-    print(f"VISION TEST: Detecting AprilTags for {duration}s")
-    print("=" * 60)
-
-    rate = rospy.Rate(10)
-    start_time = rospy.Time.now()
-    detected_tags_history = set()
-
-    try:
-        while not rospy.is_shutdown():
-            elapsed = (rospy.Time.now() - start_time).to_sec()
-            if elapsed >= duration:
-                break
-
-            detected_tags = vision.get_detected_tags()
-            detected_tags_history.update(detected_tags.keys())
-
-            print(f"\r[{elapsed:.1f}s] ", end='')
-            if detected_tags:
-                tag_strs = [f"Tag {tid}: {d['z']:.2f}m" for tid, d in detected_tags.items()]
-                print(" | ".join(tag_strs), end='')
-            else:
-                print("No tags detected", end='')
-            sys.stdout.flush()
-            rate.sleep()
-
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED]")
-
-    print("\n" + "=" * 60)
-    print(f"Detected {len(detected_tags_history)} unique tags: {sorted(detected_tags_history)}")
-    print("=" * 60)
-
-
-def test_motor(robot, distance, direction):
-    """Test motor movement"""
-    import time
-    print("=" * 60)
-    print(f"MOTOR TEST: Move {direction} {distance}m")
-    print("=" * 60)
-
-    start_x, start_y = robot.get_position()
-    speed = 0.3 if direction == 'forward' else -0.3
-
-    rate = rospy.Rate(30)
-    try:
-        while not rospy.is_shutdown():
-            robot.move(speed, 0)
-            current_x, current_y = robot.get_position()
-            traveled = ((current_x - start_x)**2 + (current_y - start_y)**2)**0.5
-
-            if traveled >= distance:
-                break
-            rate.sleep()
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED]")
-    finally:
-        robot.stop()
-        time.sleep(0.5)
-        end_x, end_y = robot.get_position()
-        actual = ((end_x - start_x)**2 + (end_y - start_y)**2)**0.5
-        print(f"\nTarget: {distance:.2f}m, Actual: {actual:.2f}m, Error: {abs(actual-distance):.2f}m")
-
-
-def test_pivot(robot, rotation_ctrl, direction):
-    """Test pivot rotation"""
-    import time
-    print("=" * 60)
-    print(f"PIVOT TEST: Rotate 90° {direction.upper()}")
-    print("=" * 60)
-
-    start_heading = robot.get_heading()
-    rotation_ctrl.start_rotation(90, direction)
-
-    rate = rospy.Rate(30)
-    try:
-        while not rospy.is_shutdown():
-            if rotation_ctrl.update():
-                break
-            rate.sleep()
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED]")
-        rotation_ctrl.cancel()
-    finally:
-        time.sleep(0.5)
-        end_heading = robot.get_heading()
-        rotation = (end_heading - start_heading) * 180.0 / 3.14159
-        print(f"\nRotation: {rotation:.1f}°")
-
-
-def list_excel_files():
-    """
-    List available Excel files in data/excel directory.
-    Returns: List of Excel file paths
-    """
-    package_dir = os.path.join(os.path.dirname(__file__), '..')
-    excel_dir = os.path.join(package_dir, 'data', 'excel')
-
-    if not os.path.exists(excel_dir):
-        return []
-
-    # Find all Excel files
-    excel_files = []
-    for ext in ['*.xlsx', '*.xls']:
-        excel_files.extend(glob.glob(os.path.join(excel_dir, ext)))
-
-    return sorted(excel_files)
-
-
-def select_excel_file():
-    """
-    Interactive Excel file selection.
-    Returns: Selected Excel file path or None
-    """
-    excel_files = list_excel_files()
-
-    if not excel_files:
-        print("\n[ERROR] No Excel files found in data/excel/ directory!")
-        print("Please place your Excel files in: data/excel/\n")
-        return None
-
-    print("\nAvailable Excel files:")
-    print("-" * 50)
-    for i, filepath in enumerate(excel_files, 1):
-        filename = os.path.basename(filepath)
-        print(f"{i}: {filename}")
-    print("-" * 50)
-
-    while True:
-        try:
-            choice = input(f"\nSelect file (1-{len(excel_files)}): ").strip()
-            idx = int(choice) - 1
-            if 0 <= idx < len(excel_files):
-                return excel_files[idx]
-            print(f"Please enter a number between 1 and {len(excel_files)}")
-        except (ValueError, KeyboardInterrupt, EOFError):
-            return None
-
-
-def select_mode():
-    """
-    Interactive mode selection.
-    Returns: (mode, target_tag/excel_path)
-    """
-    print("=" * 50)
-    print("AprilTag Navigation System")
-    print("=" * 50)
-    print("\n1: Task 1 (Zone B + C)")
-    print("2: Task 2 (Zone D + E)")
-    print("3: Direct Navigation (Go to specific tag)")
-    print("4: Scan Mode (from Excel)\n")
-
-    while True:
-        try:
-            choice = input("Select mode (1/2/3/4): ").strip()
-            if choice == '1':
-                return 1, None
-            elif choice == '2':
-                return 2, None
-            elif choice == '3':
-                target_tag = input("Enter target tag ID: ").strip()
-                if target_tag.isdigit():
-                    return 3, int(target_tag)
-                print("Please enter a valid tag ID (number)!")
-            elif choice == '4':
-                excel_path = select_excel_file()
-                if excel_path:
-                    return 4, excel_path
-                print("Excel file selection cancelled!")
-        except (KeyboardInterrupt, EOFError):
-            return None, None
-
-
 def main():
     """
     Main entry point.
@@ -423,8 +196,8 @@ Examples:
   rosrun apriltag_navigation main_node.py --mode 1
   rosrun apriltag_navigation main_node.py --mode 3 --tag 5
 
-  # Test/diagnostic modes
-  rosrun apriltag_navigation main_node.py --test-vision
+  # Quick test modes (for detailed diagnostics, use scripts/diagnostics.py)
+  rosrun apriltag_navigation main_node.py --test-vision --duration 10
   rosrun apriltag_navigation main_node.py --test-motor --distance 2.0
         """
     )
@@ -467,7 +240,9 @@ Examples:
             if args.excel:
                 mode_param = args.excel
             else:
-                mode_param = select_excel_file()
+                # Interactive Excel file selection
+                package_dir = os.path.join(os.path.dirname(__file__), '..')
+                mode_param = select_excel_file(package_dir)
                 if mode_param is None:
                     return
         else:
