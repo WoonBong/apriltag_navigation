@@ -1,259 +1,123 @@
-# AprilTag Navigation - Modular ROS Package
+# AprilTag Navigation
 
-Research-quality modular navigation system for AprilTag-based robot navigation using Pure Pursuit path following.
+AprilTag 기반 ROS 네비게이션 패키지 - Pure Pursuit 경로 추종 알고리즘 사용
 
-## Features
+## 주요 기능
 
-- **Data-Driven Configuration**: All map topology, tag coordinates, and tasks defined in YAML
-- **Modular Architecture**: Clean separation of concerns across subsystems
-- **High-Level API**: Pseudocode-like main node that's easy to read and maintain
-- **Field Diagnostics**: CLI tools for testing motors, vision, and pivot independently
-- **Preserved Logic**: Original Pure Pursuit and pose estimation algorithms maintained
+- **4가지 네비게이션 모드**: 사전 정의 Task, 직접 네비게이션, Excel 기반 스캔
+- **Pure Pursuit 제어**: 전진/후진 경로 추종 및 정밀 정렬
+- **데이터 기반 설정**: YAML로 맵, 경로, 파라미터 관리
+- **모듈형 구조**: 깔끔한 계층 분리 (perception, navigation, hardware)
+- **진단 도구**: 비전, 모터, 회전 독립 테스트
 
-## Package Structure
+## 빠른 시작
 
-```
-apriltag_navigation/
-├── config/
-│   └── map.yaml              # All map configuration (tags, edges, tasks)
-├── launch/
-│   └── navigation.launch     # ROS launch file
-├── nodes/
-│   └── main_node.py          # High-level mission controller (pseudocode-like)
-├── src/apriltag_navigation/
-│   ├── map/
-│   │   └── map_manager.py    # YAML parser, TagDatabase, NavigationGraph
-│   ├── perception/
-│   │   └── vision_module.py  # AprilTag detection & pose estimation
-│   ├── navigation/
-│   │   └── pure_pursuit.py   # Pure Pursuit algorithms
-│   ├── hardware/
-│   │   └── robot_controller.py  # Motor control & odometry
-│   └── robot_interface.py    # High-level robot API
-├── scripts/
-│   └── diagnostics.py        # Field testing tool
-├── package.xml
-├── CMakeLists.txt
-└── README.md
-```
+### 설치
 
-## Dependencies
-
-### ROS Packages
-- rospy
-- sensor_msgs
-- geometry_msgs
-- nav_msgs
-- std_msgs
-- tf
-
-### Python Packages
 ```bash
-pip install dt-apriltags numpy opencv-python pandas pyyaml
-```
-
-## Installation
-
-1. Clone into your catkin workspace:
-```bash
+# 1. 작업공간에 클론
 cd ~/catkin_ws/src
-cp -r /path/to/apriltag_navigation .
-```
+git clone https://github.com/WoonBong/apriltag_navigation.git
 
-2. Build the package:
-```bash
+# 2. 의존성 설치
+pip install dt-apriltags numpy opencv-python pandas pyyaml
+
+# 3. 빌드
 cd ~/catkin_ws
 catkin_make
 source devel/setup.bash
 ```
 
-## Usage
+### 실행
 
-### Running Navigation Missions
-
-#### Task 1 (Zone B + C):
 ```bash
+# 네비게이션 시작
 roslaunch apriltag_navigation navigation.launch
-# Then select mode 1
+
+# 명령줄 모드
+rosrun apriltag_navigation main_node.py --mode 1          # Task 1
+rosrun apriltag_navigation main_node.py --mode 3 --tag 104  # 직접 네비게이션
+
+# 진단 도구
+rosrun apriltag_navigation main_node.py --test-vision --duration 10
+rosrun apriltag_navigation main_node.py --test-motor --distance 2.0
 ```
 
-#### Task 2 (Zone D + E):
-```bash
-roslaunch apriltag_navigation navigation.launch
-# Then select mode 2
+## 네비게이션 모드
+
+| 모드 | 설명 | 사용법 |
+|------|------|--------|
+| **Mode 1** | Task 1 (Zone B + C) | `--mode 1` |
+| **Mode 2** | Task 2 (Zone D + E) | `--mode 2` |
+| **Mode 3** | 직접 네비게이션 (연속) | `--mode 3 --tag <ID>` |
+| **Mode 4** | Excel 기반 스캔 | `--mode 4 --excel <path>` |
+
+**Mode 3 특징**: 목적지 도착 후 다음 목적지를 입력하여 연속 네비게이션 가능
+
+## 패키지 구조
+
+```
+apriltag_navigation/
+├── config/map.yaml          # 맵 설정 (태그, 엣지, Task)
+├── nodes/main_node.py       # 메인 네비게이션 노드
+├── src/apriltag_navigation/
+│   ├── robot_interface.py   # 고수준 로봇 API
+│   ├── map/                 # 맵 관리 (YAML 파싱, 경로 탐색)
+│   ├── perception/          # AprilTag 감지 및 포즈 추정
+│   ├── navigation/          # Pure Pursuit 제어
+│   └── hardware/            # 모터 제어 및 오도메트리
+├── docs/                    # 상세 문서
+│   ├── QA.md               # 24가지 FAQ
+│   ├── TEST.md             # 코드 구조 및 설계
+│   ├── Report.md           # 간략 보고서
+│   └── TAG_COORDINATES.md  # 태그 좌표 정보
+└── data/excel/             # Excel 스캔 파일
+
 ```
 
-#### Scan Mode (from Excel):
-```bash
-roslaunch apriltag_navigation navigation.launch
-# Then select mode 4 and provide Excel file path
-```
+## 의존성
 
-### Field Diagnostics
+- **ROS**: rospy, sensor_msgs, geometry_msgs, nav_msgs, tf
+- **Python**: dt-apriltags, numpy, opencv-python, pandas, pyyaml
 
-Test individual subsystems without running full navigation:
+## 상세 문서
 
-#### Test Motors
-```bash
-# Move forward 2 meters
-rosrun apriltag_navigation diagnostics.py --test-motor --distance 2.0 --direction forward
+- **[QA.md](docs/QA.md)**: 24가지 상세 질문 & 답변
+- **[TEST.md](docs/TEST.md)**: 전체 코드 구조 및 설계 문서
+- **[TAG_COORDINATES.md](docs/TAG_COORDINATES.md)**: 태그 좌표 및 배치 정보
 
-# Move backward 1 meter
-rosrun apriltag_navigation diagnostics.py --test-motor --distance 1.0 --direction backward
-```
+## 개발 및 기여
 
-#### Test Vision
-```bash
-# Detect AprilTags for 10 seconds
-rosrun apriltag_navigation diagnostics.py --test-vision --duration 10
-```
+### 맵 수정
 
-#### Test Pivot
-```bash
-# Rotate 90 degrees counter-clockwise
-rosrun apriltag_navigation diagnostics.py --test-pivot --direction ccw --angle 90
+`config/map.yaml` 파일 편집:
+- 태그 좌표 수정
+- 엣지 추가/삭제
+- Task waypoint 변경
+- 로봇 파라미터 조정
 
-# Rotate 90 degrees clockwise
-rosrun apriltag_navigation diagnostics.py --test-pivot --direction cw --angle 90
-```
-
-#### Run All Tests
-```bash
-rosrun apriltag_navigation diagnostics.py --test-all
-```
-
-## Architecture
-
-### Design Principles
-
-1. **High-Level Abstraction**: Main node reads like English pseudocode
-   ```python
-   mission.load_task('task1')
-   while mission.execute():
-       # Clean, readable mission execution
-   ```
-
-2. **Data-Driven Topology**: All map data externalized to YAML
-   - Tag coordinates and zones
-   - Graph connectivity and directions
-   - Task waypoint sequences
-   - Robot parameters
-
-3. **Separation of Concerns**:
-   - **MapManager**: Configuration and pathfinding
-   - **VisionModule**: AprilTag detection
-   - **PurePursuitController**: Path following math
-   - **RobotController**: Hardware interface
-   - **RobotInterface**: High-level API
-
-4. **Field Testability**: Diagnostic tools for independent subsystem testing
-
-## Configuration
-
-Edit `config/map.yaml` to modify:
-- Tag positions and zones
-- Navigation graph edges
-- Task definitions
-- Robot parameters (speeds, thresholds, dimensions)
-
-## API Overview
-
-### High-Level Robot Interface
-
-```python
-from apriltag_navigation.robot_interface import RobotInterface
-
-robot = RobotInterface()
-robot.wait_until_ready()
-
-# High-level commands
-robot.move_to_tag(target_tag, edge_info)
-robot.align_to_tag(tag_id)
-robot.rotate_90('ccw')
-robot.stop()
-```
-
-### Map Management
+### 경로 검증
 
 ```python
 from apriltag_navigation.map.map_manager import MapManager
 
 map_mgr = MapManager()
-path = map_mgr.nav_graph.find_path(start, goal)
-tag_info = map_mgr.tag_db.get(tag_id)
-waypoints = map_mgr.task_manager.get_task_waypoints('task1')
+is_valid, msg = map_mgr.validate_waypoints([508, 500, 104])
+print(f"Valid: {is_valid}, Message: {msg}")
 ```
 
-### Vision
+## 변경 이력
 
-```python
-from apriltag_navigation.perception.vision_module import VisionModule
+자세한 변경 이력은 [CHANGELOG.md](CHANGELOG.md)를 참조하세요.
 
-vision = VisionModule()
-detected_tags = vision.get_detected_tags()
-lateral = vision.get_tag_lateral(tag_id)
-align_angle = vision.get_alignment_angle(tag_id)
-```
-
-## Extending the System
-
-### Adding New Tasks
-
-Edit `config/map.yaml`:
-```yaml
-tasks:
-  my_task:
-    description: "Custom task description"
-    waypoints: [508, 500, 400, 401, ...]
-```
-
-### Adding New Tags
-
-Edit `config/map.yaml`:
-```yaml
-tags:
-  999:
-    x: 1.5
-    y: 2.5
-    type: WORK
-    zone: A
-```
-
-### Modifying Navigation Graph
-
-Edit `config/map.yaml`:
-```yaml
-edges:
-  - from: 999
-    to: 500
-    direction: forward
-    type: move
-```
-
-## Troubleshooting
-
-### Camera not detected
-- Check that `/rgb` and `/camera_info` topics are publishing
-- Verify camera calibration parameters
-
-### Odometry issues
-- Ensure `/odom` topic is publishing
-- Check coordinate frame alignment
-
-### Tag detection problems
-- Verify lighting conditions
-- Check tag size parameter in `config/map.yaml`
-- Use diagnostics tool: `--test-vision`
-
-### Motor control issues
-- Test with diagnostics: `--test-motor`
-- Verify `/cmd_vel` topic is subscribed by robot
-
-## License
+## 라이선스
 
 MIT License
 
-## Credits
+## 작성자
 
-Refactored from original `navigation_purepursuit.py` by [Your Name].
-Pure Pursuit algorithms and coordinate transformations preserved from original implementation.
+WoonBong (woonbong@konkuk.ac.kr)
+
+---
+
+**더 자세한 정보**: [docs/](docs/) 폴더의 문서 참조
