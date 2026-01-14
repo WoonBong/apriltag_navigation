@@ -306,3 +306,35 @@ class MapManager:
             return value
         except (KeyError, TypeError):
             return default
+
+    def validate_waypoints(self, waypoints):
+        """
+        Validate waypoint path for connectivity and tag existence.
+
+        Args:
+            waypoints: List of tag IDs representing the path
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not waypoints:
+            return False, "Empty waypoint list"
+
+        if len(waypoints) < 2:
+            return False, "Path must have at least 2 waypoints"
+
+        # Check all tags exist
+        for tag_id in waypoints:
+            if not self.tag_db.get(tag_id):
+                return False, f"Tag {tag_id} does not exist in map"
+
+        # Check connectivity (edges exist between consecutive waypoints)
+        for i in range(len(waypoints) - 1):
+            current = waypoints[i]
+            next_wp = waypoints[i + 1]
+
+            edge = self.nav_graph.get_edge(current, next_wp)
+            if not edge:
+                return False, f"No edge from tag {current} to tag {next_wp}"
+
+        return True, "Path is valid"

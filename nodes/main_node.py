@@ -25,16 +25,18 @@ class NavigationMission:
     Reads like English pseudocode.
     """
 
-    def __init__(self, robot, map_manager):
+    def __init__(self, robot, map_manager, mode=None):
         """
         Initialize navigation mission.
 
         Args:
             robot: RobotInterface instance
             map_manager: MapManager instance
+            mode: Navigation mode (1, 2, 3, 4) or None
         """
         self.robot = robot
         self.map = map_manager
+        self.mode = mode
 
         # Mission state
         self.waypoints = []
@@ -87,8 +89,13 @@ class NavigationMission:
         if self.waypoint_index >= len(self.waypoints):
             rospy.loginfo("[MISSION] Complete!")
             self.robot.stop()
-            self.robot.compare_dock_return()
-            return True
+
+            # Mode 3: Continuous navigation - ask for next destination
+            if self.mode == 3:
+                return self._ask_next_destination()
+            else:
+                self.robot.compare_dock_return()
+                return True
 
         # Get current and next waypoint
         current_wp = self.waypoints[self.waypoint_index]
@@ -177,6 +184,45 @@ class NavigationMission:
         self.robot.state = NavigationState.IDLE
         rospy.loginfo(f"[MISSION] Waypoint {tag_id} complete")
 
+    def _ask_next_destination(self):
+        """
+        Ask user for next destination (Mode 3 continuous navigation).
+        Returns True to exit mission, False to continue.
+        """
+        rospy.loginfo("[MODE 3] Destination reached!")
+        print("\n" + "="*50)
+        print("  Destination reached!")
+        print("  Enter next target tag ID (or 'q' to quit): ")
+        print("="*50)
+
+        try:
+            user_input = input("Target tag ID: ").strip()
+
+            if user_input.lower() == 'q':
+                rospy.loginfo("[MODE 3] User quit. Returning to dock.")
+                self.robot.compare_dock_return()
+                return True
+
+            target_tag = int(user_input)
+
+            # Validate tag exists
+            if not self.map.tag_db.get(target_tag):
+                rospy.logerr(f"[MODE 3] Invalid tag ID: {target_tag}")
+                return self._ask_next_destination()  # Ask again
+
+            # Load new navigation task
+            rospy.loginfo(f"[MODE 3] New destination: {target_tag}")
+            self.load_direct_navigation(target_tag)
+            return False  # Continue mission
+
+        except ValueError:
+            rospy.logerr("[MODE 3] Invalid input. Please enter a number.")
+            return self._ask_next_destination()  # Ask again
+        except KeyboardInterrupt:
+            rospy.loginfo("[MODE 3] Interrupted. Returning to dock.")
+            self.robot.compare_dock_return()
+            return True
+
 
 def main():
     """
@@ -262,7 +308,7 @@ Examples:
         return
 
     # Create and load mission
-    mission = NavigationMission(robot, robot.map_manager)
+    mission = NavigationMission(robot, robot.map_manager, mode=mode)
 
     if mode == 1:
         mission.load_task('task1')

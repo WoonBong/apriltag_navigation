@@ -195,7 +195,7 @@ class PurePursuitController:
         #
         # Zone A: Robot faces +X, wall at -Y (robot's right)
         #   Camera right = world +Y direction
-        #   lateral > 0 = robot shifted +Y = FARTHER from wall (-Y)
+        #   lateral > 0 = tag shifted +Y = robot is at -Y = CLOSER to wall
         #   → center_to_wall = base - lateral
         #
         # Zone B/D: Robot faces +Y, wall at -X (robot's right)
