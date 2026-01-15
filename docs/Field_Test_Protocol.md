@@ -9,12 +9,11 @@
 1. [Level 0: ROS 인프라 점검](#level-0-ros-인프라-점검)
 2. [Level 1: Vision 모듈](#level-1-vision-모듈)
 3. [Level 2: Map Manager](#level-2-map-manager)
-4. [Level 3: Pure Pursuit Controller](#level-3-pure-pursuit-controller)
-5. [Level 4: Robot Controller](#level-4-robot-controller)
-6. [Level 5: Rotation Controller](#level-5-rotation-controller)
-7. [Level 6: 통합 동작 테스트](#level-6-통합-동작-테스트)
-8. [Level 7: 전체 미션 테스트](#level-7-전체-미션-테스트)
-9. [Level 8: 예외 처리 테스트](#level-8-예외-처리-테스트)
+4. [Level 3: Robot Controller](#level-3-robot-controller)
+5. [Level 4: Rotation Controller](#level-4-rotation-controller)
+6. [Level 5: 통합 동작 테스트](#level-5-통합-동작-테스트)
+7. [Level 6: 전체 미션 테스트](#level-6-전체-미션-테스트)
+8. [Level 7: 예외 처리 테스트](#level-7-예외-처리-테스트)
 
 ---
 
@@ -46,8 +45,6 @@ AprilTag 검출 및 위치 추정 기능을 검증합니다.
 | 테스트 | 실행 방법 | 통과 기준 |
 |-------|---------|---------|
 | 기본 검출 | 태그 508을 1m 거리에 배치 → Vision 활성화 | `get_detected_tags()`에 508 포함 |
-| 다중 검출 | 태그 2개(508, 100) 동시 배치 | 두 태그 모두 검출 |
-| 거리 한계 | 태그를 3m 거리에 배치 | 검출 실패 (정상) |
 
 **검증 명령:**
 ```bash
@@ -55,22 +52,16 @@ rostopic echo /rgb -n 1  # 이미지 수신 확인
 # Vision 모듈 로그에서 "Detected tags: [508]" 확인
 ```
 
-### 1.2 거리 측정 정확도
-
-| 실제 거리 | 측정값 | 오차 허용 | Pass/Fail |
-|---------|-------|---------|----------|
-| 0.5m | _____ m | < 5cm | ☐ |
-| 1.0m | _____ m | < 10cm | ☐ |
-| 2.0m | _____ m | < 20cm | ☐ |
-
-**측정 방법:**
+**예상 출력:**
 ```python
-tag_data = vision.get_tag_data(508)
-distance = tag_data['z']  # Z축 거리
-print(f"Distance: {distance:.3f}m")
+detected_tags = vision.get_detected_tags()
+# 예상 결과: [508]
+# 또는 여러 태그가 보이는 경우: [508, 500, 501, ...]
 ```
 
-### 1.3 정렬 각도 (Alignment Angle)
+태그 508이 1m 거리에서 카메라 시야에 정상적으로 들어오면 `get_detected_tags()` 함수는 508을 포함한 리스트를 반환합니다. 태그가 검출되지 않으면 빈 리스트 `[]`를 반환합니다.
+
+### 1.2 정렬 각도 (Alignment Angle)
 
 | 태그 기울기 | 측정 각도 | 오차 허용 | Pass/Fail |
 |-----------|---------|---------|----------|
@@ -131,66 +122,11 @@ print(f"Lateral offset: {lateral:.3f}m")
 
 ---
 
-## Level 3: Pure Pursuit Controller
-
-경로 추종 알고리즘 및 벽 거리 계산을 검증합니다.
-
-### 3.1 Forward Pure Pursuit
-
-| Lateral Offset | Angular Velocity | 방향 확인 |
-|---------------|-----------------|---------|
-| 0m (중앙) | ≈ 0 rad/s | 직진 |
-| 0.1m (우측) | < 0 (우회전) | 중앙으로 복귀 |
-| -0.1m (좌측) | > 0 (좌회전) | 중앙으로 복귀 |
-
-**테스트 코드:**
-```python
-angular = pursuit.calculate_forward(lateral=0.1, distance_to_tag=1.0)
-print(f"Angular: {angular:.3f} rad/s")
-# lateral > 0 → 태그가 오른쪽 → 우회전 필요 → angular < 0
-```
-
-### 3.2 Backward Pure Pursuit
-
-| Lateral Offset | Angular Velocity | 방향 확인 |
-|---------------|-----------------|---------|
-| 0m (중앙) | ≈ 0 rad/s | 직진 후진 |
-| 0.1m (우측) | < 0 (우회전) | 중앙으로 복귀 |
-
-### 3.3 Wall Distance 계산 ⚠️ 중요
-
-Zone별로 벽 거리 계산이 다릅니다. 각 Zone에서 테스트 필수!
-
-| Zone | Lateral | Align Angle | Expected Wall Dist | Pass/Fail |
-|------|---------|------------|-------------------|----------|
-| **A** | 0m | 0° | ≈ 0.60m | ☐ |
-| **A** | 0.1m (우측) | 0° | ≈ 0.50m | ☐ |
-| **B** | 0m | 0° | ≈ 0.35m | ☐ |
-| **B** | -0.1m (좌측) | 0° | ≈ 0.25m | ☐ |
-| **C** | 0m | 0° | ≈ 0.35m | ☐ |
-
-**측정 방법:**
-```python
-wall_dist = pursuit.calculate_wall_distance(lateral, align_angle_deg, zone)
-print(f"Wall distance: {wall_dist:.3f}m")
-
-# 주의: 벽 거리 < 0.10m 이면 충돌 위험!
-if wall_dist < 0.10:
-    print("WARNING: Too close to wall!")
-```
-
-**Zone별 주의사항:**
-- **Zone A / DOCK**: 벽이 로봇 우측(-Y), `lateral > 0`이면 벽에 가까워짐
-- **Zone B / D**: 벽이 로봇 우측(-X), `lateral > 0`이면 벽에서 멀어짐
-- **Zone C / E**: 벽이 로봇 우측(+X), `lateral > 0`이면 벽에 가까워짐
-
----
-
-## Level 4: Robot Controller
+## Level 3: Robot Controller
 
 Odometry 기반 위치 추정 및 모터 제어를 검증합니다.
 
-### 4.1 Odometry 수신
+### 3.1 Odometry 수신
 
 | 테스트 | 방법 | 통과 기준 |
 |-------|------|---------|
@@ -198,14 +134,27 @@ Odometry 기반 위치 추정 및 모터 제어를 검증합니다.
 | 위치 조회 | `robot.get_position()` | `(x, y)` 반환 |
 | Heading 조회 | `robot.get_heading()` | `-π ~ π` 범위 |
 
-### 4.2 참조점 (Reference Point)
+**`is_ready()` 테스트 상황:**
+`is_ready()`는 RobotController가 `/odom` 토픽과 `/camera_info` 토픽을 모두 수신했는지 확인하는 함수입니다. 시스템 시작 직후 또는 센서 연결이 끊겼다가 복구된 직후에 이 함수를 호출하여 로봇이 주행 준비가 되었는지 확인합니다. 정상적인 경우 5초 이내에 `True`를 반환해야 합니다.
+
+**테스트 방법:**
+```python
+robot = RobotInterface()
+ready = robot.wait_until_ready(timeout=10.0)
+if ready:
+    print("Robot is ready to move")
+else:
+    print("Timeout: Sensors not ready")
+```
+
+### 3.2 참조점 (Reference Point)
 
 | 테스트 | 방법 | 확인 사항 |
 |-------|------|---------|
 | 참조점 설정 | `robot.set_reference_point(1.0, 2.0, 0.5)` | `ref_robot_x = 1.0` 저장 |
 | 추정 위치 | `robot.get_estimated_pose()` | Odometry delta 기반 계산 |
 
-### 4.3 속도 명령
+### 3.3 속도 명령
 
 | 테스트 | 명령 | 확인 |
 |-------|------|------|
@@ -216,11 +165,11 @@ Odometry 기반 위치 추정 및 모터 제어를 검증합니다.
 
 ---
 
-## Level 5: Rotation Controller
+## Level 4: Rotation Controller
 
 90도 회전 제어를 검증합니다.
 
-### 5.1 회전 명령
+### 4.1 회전 명령
 
 | 방향 | 초기 Heading | 목표 Heading | 오차 허용 | Pass/Fail |
 |------|-----------|------------|---------|----------|
@@ -245,7 +194,7 @@ diff = final_heading - initial_heading
 # CW: diff ≈ -90°, CCW: diff ≈ +90°
 ```
 
-### 5.2 회전 완료 판정
+### 4.2 회전 완료 판정
 
 | 오차 | 결과 | 예상 |
 |------|------|------|
@@ -254,11 +203,11 @@ diff = final_heading - initial_heading
 
 ---
 
-## Level 6: 통합 동작 테스트
+## Level 5: 통합 동작 테스트
 
 상위 함수 3개(`move_to_tag`, `rotate_90`, `align_to_tag`)를 검증합니다.
 
-### 6.1 move_to_tag()
+### 5.1 move_to_tag()
 
 **Setup:**
 1. 로봇을 tag 508(Dock)에 배치
@@ -279,7 +228,7 @@ success = robot.move_to_tag(100, edge)
 - [ ] Lateral offset < 5cm
 - [ ] 도착 후 `return True`
 
-### 6.2 rotate_90()
+### 5.2 rotate_90()
 
 **Setup:**
 1. 로봇을 평평한 바닥에 배치
@@ -298,7 +247,7 @@ final_heading = robot.get_heading()
 - [ ] 회전 완료 (|final - initial + π/2| < 5°)
 - [ ] 로봇 정지 확인
 
-### 6.3 align_to_tag()
+### 5.3 align_to_tag()
 
 **Setup:**
 1. 로봇을 tag 100 앞에 배치
@@ -318,11 +267,11 @@ success = robot.align_to_tag(100)
 
 ---
 
-## Level 7: 전체 미션 테스트
+## Level 6: 전체 미션 테스트
 
 4가지 모드 전체를 실행하여 시스템 종합 성능을 검증합니다.
 
-### 7.1 Task 1 실행
+### 6.1 Task 1 실행
 
 **명령:**
 ```bash
@@ -341,7 +290,7 @@ rosrun apriltag_navigation main_node.py --mode 1
 - 성공률: 100% (45/45)
 - Dock 복귀 오차: < 5cm
 
-### 7.2 Task 2 실행
+### 6.2 Task 2 실행
 
 **명령:**
 ```bash
@@ -354,7 +303,7 @@ rosrun apriltag_navigation main_node.py --mode 2
 - [ ] Backward 이동 정상 동작 (해당 edge 있을 경우)
 - [ ] Dock 복귀 정확도: lateral offset = _____ cm
 
-### 7.3 Mode 3: Direct Navigation
+### 6.3 Mode 3: Direct Navigation
 
 **명령:**
 ```bash
@@ -368,7 +317,7 @@ rosrun apriltag_navigation main_node.py --mode 3 --tag 123
 - [ ] 연속 입력: 새 목표 태그 입력 후 재실행
 - [ ] 'q' 입력 시 Dock 복귀
 
-### 7.4 Mode 4: Excel Scan
+### 6.4 Mode 4: Excel Scan
 
 **명령:**
 ```bash
@@ -392,11 +341,11 @@ rosrun apriltag_navigation main_node.py --mode 4 --excel test.xlsx
 
 ---
 
-## Level 8: 예외 처리 테스트
+## Level 7: 예외 처리 테스트
 
 시스템이 오류 상황에서도 안전하게 동작하는지 검증합니다.
 
-### 8.1 태그 미검출
+### 7.1 태그 미검출
 
 **Test:**
 1. 로봇 이동 중 태그를 손으로 가림
@@ -406,7 +355,7 @@ rosrun apriltag_navigation main_node.py --mode 4 --excel test.xlsx
 - [ ] 직진 모드로 전환 (Pure Pursuit 중단)
 - [ ] 태그 다시 보이면 정상 모드 복귀
 
-### 8.2 경로 없음
+### 7.2 경로 없음
 
 **Test:**
 ```bash
@@ -418,7 +367,7 @@ rosrun apriltag_navigation main_node.py --mode 3 --tag 999
 - [ ] 빈 waypoints 반환
 - [ ] 프로그램 종료 (크래시 없음)
 
-### 8.3 Excel 파일 오류
+### 7.3 Excel 파일 오류
 
 **Test:**
 ```bash
@@ -434,7 +383,7 @@ rosrun apriltag_navigation main_node.py --mode 4 --excel wrong_format.xlsx
 - [ ] [508] (Dock만) 반환
 - [ ] 프로그램 종료
 
-### 8.4 Odometry Timeout
+### 7.4 Odometry Timeout
 
 **Test:**
 1. ROS 실행
@@ -446,7 +395,7 @@ rosrun apriltag_navigation main_node.py --mode 4 --excel wrong_format.xlsx
 - [ ] 10초 후 종료
 - [ ] `wait_until_ready()` → `False` 반환
 
-### 8.5 회전 Timeout
+### 7.5 회전 Timeout
 
 **Test:**
 1. IMU 고장 시뮬레이션 (Odometry의 heading 고정)
@@ -457,24 +406,6 @@ rosrun apriltag_navigation main_node.py --mode 4 --excel wrong_format.xlsx
 - [ ] "Rotation timeout" 로그
 - [ ] 다음 웨이포인트로 진행
 
-### 8.6 벽 충돌 경고 ⚠️
-
-**Test:**
-1. 로봇을 벽 근처(< 10cm)로 배치
-2. 이동 명령 실행
-
-**예상 동작:**
-- [ ] "WARN!" 로그 출력
-- [ ] `/nav_debug_status`에 "WARNING" 표시
-- [ ] **주행은 계속** (경고만 출력, 정지하지 않음)
-
-**벽 거리 확인 방법:**
-```bash
-rostopic echo /nav_debug_status
-# "wall_dist" 필드 확인
-# "warning" 필드가 "WARNING"인지 확인
-```
-
 ---
 
 ## 테스트 완료 체크리스트
@@ -482,14 +413,13 @@ rostopic echo /nav_debug_status
 ### 전체 시스템
 
 - [ ] **Level 0**: ROS 인프라 (5개 항목)
-- [ ] **Level 1**: Vision 모듈 (4개 테스트)
+- [ ] **Level 1**: Vision 모듈 (3개 테스트)
 - [ ] **Level 2**: Map Manager (3개 테스트)
-- [ ] **Level 3**: Pure Pursuit (3개 테스트 + **Wall Distance**)
-- [ ] **Level 4**: Robot Controller (3개 테스트)
-- [ ] **Level 5**: Rotation Controller (2개 테스트)
-- [ ] **Level 6**: 통합 동작 (3개 함수)
-- [ ] **Level 7**: 전체 미션 (4개 모드)
-- [ ] **Level 8**: 예외 처리 (6개 시나리오)
+- [ ] **Level 3**: Robot Controller (3개 테스트)
+- [ ] **Level 4**: Rotation Controller (2개 테스트)
+- [ ] **Level 5**: 통합 동작 (3개 함수)
+- [ ] **Level 6**: 전체 미션 (4개 모드)
+- [ ] **Level 7**: 예외 처리 (5개 시나리오)
 
 ### 핵심 성능 지표
 
@@ -497,16 +427,7 @@ rostopic echo /nav_debug_status
 |------|------|------|----------|
 | Task 1 성공률 | 100% (45/45) | _____ % | ☐ |
 | Dock 복귀 정확도 | < 5cm lateral | _____ cm | ☐ |
-| Vision 검출 거리 | > 1.5m | _____ m | ☐ |
 | 회전 정확도 | < 5° 오차 | _____ ° | ☐ |
-| Wall 최소 거리 | > 10cm | _____ cm | ☐ |
-
-### 현장 테스트 서명
-
-- **테스트 일시:** _______________
-- **테스트 장소:** _______________
-- **테스터:** _______________
-- **전체 Pass/Fail:** ☐ Pass  ☐ Fail
 
 **특이사항:**
 ```
