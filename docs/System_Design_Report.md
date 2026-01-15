@@ -339,21 +339,8 @@ waypoints, scan_tags = task_manager.get_excel_scan_waypoints(excel_path)
 
 #### Step 3: Control (제어 연산)
 
-**Pure Pursuit 알고리즘 (`calculate_forward` 또는 `calculate_backward`)**
+**Pure Pursuit 알고리즘**
 
-**수식:**
-$$
-L_{\text{eff}} = \max(\text{distance}, 0.4)
-$$
-$$
-\alpha = \arctan2(-\text{lateral}, L_{\text{eff}})
-$$
-$$
-\kappa = \frac{2 \sin(\alpha)}{L_{\text{eff}}}
-$$
-$$
-\omega = v \cdot \kappa \cdot k_{\text{gain}}
-$$
 
 **파라미터:**
 - Forward: $v = +0.3$ m/s, $k_{\text{gain}} = 1.0$
@@ -560,12 +547,6 @@ angular = clip(angular, -0.3, +0.3)
 
 #### Step 3: Control (제어 연산)
 
-**비례 제어 (Proportional Control):**
-
-**수식:**
-$$
-\omega = -\alpha \cdot k_{\text{align}}
-$$
 
 **파라미터:**
 - $\alpha$: `align_angle_deg` (태그 기울기)
@@ -649,11 +630,7 @@ cmd_pub.publish(twist)
 |------|------|
 | **Dock 복귀 정확도** | < 5cm lateral offset |
 | **회전 정확도** | < 5° 오차 |
-| **Vision 검출 거리** | > 1.5m |
 | **제어 주기** | 30 Hz |
 
 ---
 
-**문서 종료**
-
-본 시스템 설계 보고서는 AprilTag Navigation의 **모듈별 상세 I/O**, **실행 순서 기반 기능 분해**, **4단계 제어 흐름**을 기술하였다.
